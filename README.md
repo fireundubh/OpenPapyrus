@@ -3,12 +3,12 @@
 ## Overview
 
 The Open Papyrus Project (OPP) provides open source grammars that describe the 
-Papyrus language used by Bethesda Softworks and independent authors of mods for 
-games such as *The Elder Scrolls V: Skyrim* and *Fallout 4*.
+Papyrus language. This language is used by Bethesda Softworks and authors of
+mods for games such as *The Elder Scrolls V: Skyrim* and *Fallout 4*.
 
-The intent of the project is to facilitate the development of tools for this 
-scripting language, such as syntax highlighting, inspections, refactorings, 
-code clone analysis, and build automation.
+This project's intent is to facilitate the development of language tools &mdash;
+such as syntax highlighting, inspections, refactorings, code clone analysis, and
+build automation &mdash; by producing accurate and efficient grammars.
 
 ## Project Status
 
@@ -27,7 +27,7 @@ Work has not yet started on the following grammars:
 - Papyrus Var Cleaner
 - Papyrus Code Generator
 
-The existing grammars have not been fully tested.
+The available grammars have not been fully tested.
 
 ### How are these grammars used by the compiler?
 
@@ -35,22 +35,23 @@ The compiler makes use of each grammar in the following order:
 
 1. Loads and parses scripts into objects (`PapyrusParser`)
 2. Creates a dictionary of parsed flags (`FlagsParser`)
-3. Checks type safety (`PapyrusTypeWalker`)
+3. Checks for type safety (`PapyrusTypeWalker`)
 4. Performs release and final processing (`PapyrusReleaseProcessor`)
 5. Optimizes expressions (`PapyrusOptimizer`)
 6. Cleans up temporary and unused variables (`PapyrusVarCleaner`)
-7. Builds tree for string template (`PapyrusGen`)
+7. Builds final tree and formats data with string template (`PapyrusGen`)
 
-The compiler then passes that data to the assembler which writes the PEX.
+The compiler then passes control to the assembler which writes `.pex` output.
 
 ## Contributing
 
-Code contributions and testing are appreciated.
+Grammar contributions and testing are appreciated. Here's how to get started:
 
 1. Install [PyCharm](https://www.jetbrains.com/pycharm/). A free Community Edition is available.
 2. Install the [ANTLR v4](https://plugins.jetbrains.com/plugin/7358-antlr-v4) and [StringTemplate v4](https://plugins.jetbrains.com/plugin/8041-stringtemplate-v4) plugins.
 3. Use the ANTLR Preview tool to test and profile rules.
-4. For developers, submit pull requests. For everyone else, submit issues.
+
+For developers, submit pull requests. For everyone else, submit issues.
 
 ## Legal Notice
 
