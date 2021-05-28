@@ -205,8 +205,7 @@ EAT_EOL         : '\\' EOL
                 -> skip;
 
 COMMENT         : (';/' .*? '/;'
-                | ';' ~[\n]*)
-                -> skip;
+                | ';' ~[\n]*);
 
 fragment A      : [aA];
 fragment B      : [bB];

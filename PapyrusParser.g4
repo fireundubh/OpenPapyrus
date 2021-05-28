@@ -26,7 +26,7 @@ parser grammar PapyrusParser;
 
 options { tokenVocab=PapyrusLexer; language=Python3; }
 
-script                : terminator header ( definitionOrBlock )* EOF
+script                : terminator header ( COMMENT | definitionOrBlock )* EOF
                       ;
 
 header                : SCRIPTNAME scriptType ( EXTENDS scriptType )? userFlags terminator DOCSTRING?
@@ -68,13 +68,13 @@ customEventDefinition : CUSTOMEVENT ID terminator
 import_obj            : IMPORT scriptType terminator
                       ;
 
-function              : functionHeader functionBlock
+function              : functionHeader functionBlock?
                       ;
 
 functionHeader        : anyType? FUNCTION ID LPAREN callParameters? RPAREN userFlags terminator DOCSTRING?
                       ;
 
-functionBlock         : NATIVE
+functionBlock         : NATIVE terminator
                       | terminator ENDFUNCTION
                       | terminator statement* ENDFUNCTION terminator
                       ;
@@ -260,5 +260,5 @@ anyType               : scriptType
 scriptType            : ID ( COLON ID )*
                       ;
 
-terminator            : EOL*
+terminator            : COMMENT? EOL*
                       ;
