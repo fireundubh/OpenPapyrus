@@ -124,7 +124,7 @@ ID              : [A-Z_a-z] ([0-9A-Z_a-z]+)?
                 ;
 
 INTEGER         : DIGIT+
-                | '0x' (DIGIT | HEX_DIGIT)+
+                | '0' X (DIGIT | HEX_DIGIT)+
                 ;
 
 FLOAT           : DIGIT+ (DOT DIGIT+)
