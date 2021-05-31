@@ -29,7 +29,7 @@ options { tokenVocab=PapyrusLexer; language=Python3; }
 script                : terminator header ( COMMENT | definitionOrBlock )* EOF
                       ;
 
-header                : SCRIPTNAME scriptType ( EXTENDS scriptType )? userFlags terminator DOCSTRING?
+header                : (COMMENT terminator)? SCRIPTNAME scriptType ( EXTENDS scriptType )? userFlags terminator DOCSTRING?
                       ;
 
 userFlags             : userFlag*
@@ -142,6 +142,7 @@ statement             : localDefinition
                       | return_stat
                       | ifBlock
                       | whileBlock
+                      | COMMENT terminator
                       ;
 
 l_value               : LPAREN expression RPAREN DOT ID
