@@ -204,7 +204,7 @@ EOL             : '\r'? '\n'
 WS              : WS_CHAR+
                 -> skip;
 
-EAT_EOL         : '\\' WS_CHAR? EOL
+EAT_EOL         : '\\' WS_CHAR* EOL
                 -> skip;
 
 COMMENT         : (';/' .*? '/;'
