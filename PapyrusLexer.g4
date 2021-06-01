@@ -108,7 +108,8 @@ BASETYPE        : I N T
                 | F L O A T
                 | S T R I N G
                 | B O O L
-                | V A R;
+//                | V A R
+                ;
 
 NONE            : N O N E;
 
@@ -133,7 +134,9 @@ FLOAT           : DIGIT+ (DOT DIGIT+)
 
 STRING          : DQUOTE .*? DQUOTE;
 
-DOCSTRING       : LBRACE .*? RBRACE;
+DOCSTRING       : LBRACE .*? RBRACE
+                | LBRACE RBRACE
+                ;
 
 LPAREN          : '(';
 
