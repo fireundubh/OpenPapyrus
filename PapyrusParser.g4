@@ -26,10 +26,10 @@ parser grammar PapyrusParser;
 
 options { tokenVocab=PapyrusLexer; language=Python3; }
 
-script                : terminator header ( COMMENT | definitionOrBlock )* EOF
+script                : terminator header ( COMMENT | DOCSTRING | definitionOrBlock )* EOF
                       ;
 
-header                : (COMMENT terminator)? SCRIPTNAME scriptType ( EXTENDS scriptType )? userFlags terminator DOCSTRING?
+header                : (COMMENT terminator)? SCRIPTNAME scriptType ( EXTENDS scriptType )? userFlags terminator (DOCSTRING terminator)?
                       ;
 
 userFlags             : userFlag*
@@ -42,10 +42,9 @@ userFlag              : NATIVE
                       | DEBUGONLY
                       | BETAONLY
                       | CONST
-                      | ID
-                      | HIDDENFLAG   // TODO: without this priority, "Hidden" flag does not tokenize (???)
-                      | CONDITIONAL  // TODO: without this priority, "Conditional" flag does not tokenize (???)
-                      | MANDATORY    // TODO: without this priority, this rule would fall back to the generic ID
+                      | HIDDENFLAG
+                      | CONDITIONAL
+                      | MANDATORY
                       ;
 
 definitionOrBlock     : fieldDefinition
@@ -68,15 +67,14 @@ customEventDefinition : CUSTOMEVENT ID terminator
 import_obj            : IMPORT scriptType terminator
                       ;
 
-function              : functionHeader functionBlock?
+function              : functionHeader functionBlock
                       ;
 
 functionHeader        : anyType? FUNCTION ID LPAREN callParameters? RPAREN userFlags terminator DOCSTRING?
                       ;
 
-functionBlock         : NATIVE terminator
-                      | terminator ENDFUNCTION
-                      | terminator statement* ENDFUNCTION terminator
+functionBlock         : (NATIVE | terminator)
+                      | (NATIVE | terminator statement* ENDFUNCTION terminator)
                       ;
 
 eventFunc             : eventHeader eventBlock
@@ -108,13 +106,22 @@ stateBlock            : AUTO? STATE ID terminator stateFuncOrEvent* ENDSTATE ter
 
 stateFuncOrEvent      : function
                       | eventFunc
+                      | COMMENT
                       ;
 
-propertyBlock         : propertyHeader ( propertyFunc* ENDPROPERTY )? terminator
+propertyBlock         : propertyHeader propertyFunc ( propertyFunc )* ENDPROPERTY terminator
+                      | autoPropertyHeader
+                      | readOnlyPropertyHeader
                       ;
 
-propertyHeader        : anyType PROPERTY ID ( EQUALS signedConstant )? userFlags terminator DOCSTRING?
+propertyHeader        : anyType PROPERTY ID userFlags terminator (DOCSTRING terminator)?
                       ;
+
+autoPropertyHeader    : anyType PROPERTY ID ( EQUALS signedConstant )? AUTO userFlags terminator (DOCSTRING terminator)?
+                      ;
+
+readOnlyPropertyHeader : BASETYPE PROPERTY ID EQUALS signedConstant AUTOREADONLY userFlags terminator (DOCSTRING terminator)?
+                       ;
 
 propertyFunc          : function
                       ;
@@ -142,7 +149,7 @@ statement             : localDefinition
                       | return_stat
                       | ifBlock
                       | whileBlock
-                      | COMMENT terminator
+                      | COMMENT
                       ;
 
 l_value               : LPAREN expression RPAREN DOT ID
