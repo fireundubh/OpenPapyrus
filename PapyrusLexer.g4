@@ -198,17 +198,17 @@ DIVEQUALS       : '/=';
 
 MODEQUALS       : '%=';
 
-EOL             : '\r'? '\n'
-                -> skip;
+EOL             : '\r'? '\n';
 
 WS              : WS_CHAR+
-                -> skip;
+                -> channel(99);
 
 EAT_EOL         : '\\' WS_CHAR* EOL
-                -> skip;
+                -> channel(99);
 
-COMMENT         : (';/' .*? '/;'
-                | ';' ~[\n]*);
+COMMENT         : (';' '/' .*? '/' ';'
+                | ';' ~[/] ~[\n]* ~[/] ~[;])
+                -> channel(99);
 
 fragment A      : [aA];
 fragment B      : [bB];

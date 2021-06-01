@@ -26,10 +26,10 @@ parser grammar PapyrusParser;
 
 options { tokenVocab=PapyrusLexer; language=Python3; }
 
-script                : terminator header ( COMMENT | DOCSTRING | definitionOrBlock )* EOF
+script                : terminator header ( DOCSTRING | definitionOrBlock )* EOF
                       ;
 
-header                : (COMMENT terminator)? SCRIPTNAME scriptType ( EXTENDS scriptType )? userFlags terminator (DOCSTRING terminator)?
+header                : SCRIPTNAME scriptType ( EXTENDS scriptType )? userFlags terminator (DOCSTRING terminator)?
                       ;
 
 userFlags             : userFlag*
@@ -106,7 +106,6 @@ stateBlock            : AUTO? STATE ID terminator stateFuncOrEvent* ENDSTATE ter
 
 stateFuncOrEvent      : function
                       | eventFunc
-                      | COMMENT
                       ;
 
 propertyBlock         : propertyHeader propertyFunc ( propertyFunc )* ENDPROPERTY terminator
@@ -149,7 +148,6 @@ statement             : localDefinition
                       | return_stat
                       | ifBlock
                       | whileBlock
-                      | COMMENT
                       ;
 
 l_value               : LPAREN expression RPAREN DOT ID
@@ -268,5 +266,5 @@ anyType               : scriptType
 scriptType            : ID ( COLON ID )*
                       ;
 
-terminator            : COMMENT? EOL*
+terminator            : WS? EOL*
                       ;
