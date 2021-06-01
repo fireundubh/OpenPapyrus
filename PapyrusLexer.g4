@@ -207,7 +207,7 @@ EAT_EOL         : '\\' WS_CHAR* EOL
                 -> channel(99);
 
 COMMENT         : (';' '/' .*? '/' ';'
-                | ';' ~[/] ~[\n]* ~[/] ~[;])
+                | ';' ~[/] ~[\n]*)
                 -> channel(99);
 
 fragment A      : [aA];
