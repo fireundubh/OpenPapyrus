@@ -121,15 +121,14 @@ BOOL            : T R U E
                 | F A L S E
                 ;
 
-ID              : [A-Z_a-z] ([0-9A-Z_a-z]+)?
+ID              : [A-Z_a-z] [0-9A-Z_a-z]*
                 ;
 
-INTEGER         : DIGIT+
+INTEGER         : MINUS? DIGIT+
                 | '0' X (DIGIT | HEX_DIGIT)+
                 ;
 
-FLOAT           : DIGIT+ (DOT DIGIT+)
-                | DOT DIGIT+
+FLOAT           : MINUS? DIGIT+ (DOT DIGIT+)?
                 ;
 
 STRING          : DQUOTE .*? DQUOTE;
