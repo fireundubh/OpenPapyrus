@@ -1,5 +1,8 @@
 .idea/
 gen/
+out/
+Generated/
 *.interp
 *.java
 *.tokens
+*.stg
