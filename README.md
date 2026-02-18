@@ -38,18 +38,18 @@ These grammars document the ANTLR3 tree walker implementations found in the deco
 | File | Purpose |
 |---|---|
 | `PapyrusTypeWalkerSSE.g` | SSE type checking and semantic analysis (45 rules) |
-| `PapyrusTypeWalkerFO4.g` | FO4 type checking with namespace/struct validation (47 rules) |
-| `PapyrusTypeWalkerSF1.g` | SF1 type checking with concurrency validation (53 rules) |
+| `PapyrusTypeWalkerFO4.g` | FO4 type checking with namespace/struct validation (50 rules) |
+| `PapyrusTypeWalkerSF1.g` | SF1 type checking with concurrency validation (55 rules) |
 | `PapyrusReleaseProcessorFO4.g` | FO4 release/final build processing — strips `DebugOnly`/`BetaOnly` calls |
 | `PapyrusReleaseProcessorSF1.g` | SF1 release/final build processing — strips `DebugOnly`/`BetaOnly` calls |
 | `PapyrusVarCleanerFO4.g` | FO4 unused variable removal (2-pass: SCAN then CLEANUP) |
 | `PapyrusVarCleanerSF1.g` | SF1 unused variable removal (2-pass: SCAN then CLEANUP) |
 | `PapyrusOptimizeWalkerSSE.g` | SSE optimization with integrated variable cleanup (46 rules, NORMAL + VARCLEANUP passes) |
-| `PapyrusOptimizerFO4.g` | FO4 optimization passes (10+ sub-passes) |
+| `PapyrusOptimizerFO4.g` | FO4 optimization passes (14 sub-passes) |
 | `PapyrusOptimizerSF1.g` | SF1 optimization passes (14 sub-passes) |
-| `PapyrusGenSSE.g` | SSE code generation via StringTemplate (43 rules) |
+| `PapyrusGenSSE.g` | SSE code generation via StringTemplate (46 rules) |
 | `PapyrusGenFO4.g` | FO4 code generation via StringTemplate (52 rules) |
-| `PapyrusGenSF1.g` | SF1 code generation via StringTemplate (48 rules) |
+| `PapyrusGenSF1.g` | SF1 code generation via StringTemplate (60 rules) |
 
 ## Compilation Pipeline
 
