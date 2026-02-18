@@ -266,24 +266,22 @@ header
 // DEFINITIONS AND BLOCKS
 // ============================================================================
 //
-// Dispatcher for all script-level definitions. SF1 has 10 definition types:
-//   1. fieldDefinition       - Script-level variables
-//   2. guardDefinition       - Guard declarations (SF1-specific)
-//   3. customEventDefinition - Custom event declarations
-//   4. import_obj            - Import statements (no code generation)
-//   5. function              - Function definitions
-//   6. eventFunc             - Event handler definitions
-//   7. stateBlock            - State definitions with functions/events
-//   8. propertyBlock         - Property definitions with get/set
-//   9. groupBlock            - Property group definitions
-//  10. structBlock           - Struct type definitions
+// Dispatcher for all script-level definitions. The code generator handles
+// 8 definition types (customEventDefinition and import_obj are handled by
+// earlier compiler passes and do not appear in the post-optimization AST):
+//   1. fieldDefinition       - Script-level variables (VAR node)
+//   2. guardDefinition       - Guard declarations (GUARD node, SF1-specific)
+//   3. function              - Function definitions (FUNCTION node)
+//   4. eventFunc             - Event handler definitions (EVENT/REMOTEEVENT node)
+//   5. stateBlock            - State definitions (STATE node)
+//   6. propertyBlock         - Property definitions (PROPERTY/AUTOPROP node)
+//   7. groupBlock            - Property group definitions (GROUP node)
+//   8. structBlock           - Struct type definitions (STRUCT node)
 // ============================================================================
 
 definitionOrBlock
     : fieldDefinition
     | guardDefinition       // SF1-specific: Guard variable for concurrency
-    | customEventDefinition
-    | import_obj
     | function
     | eventFunc
     | stateBlock
@@ -331,16 +329,6 @@ guardDefinition
     // Add to script_scope.objGuardDefinitions
     : ID userFlags
       -> template(name={...})
-    ;
-
-customEventDefinition
-    // Custom event declarations (metadata only, no code generation)
-    : ID
-    ;
-
-import_obj
-    // Import statements (no code generation, processed by type checker)
-    : scriptType
     ;
 
 // ============================================================================
@@ -397,7 +385,11 @@ functionHeader
 //
 // Remote Event Mangling:
 //   Remote events are mangled via MangleRemoteEventName():
-//     "OnActivate" → "::remote_OnActivate"
+//     "OnActivate" -> "::remote_OnActivate"
+//
+// The tree grammar dispatches on two root tokens:
+//   - EVENT : Regular event (aRemoteEvent = false)
+//   - REMOTEEVENT : Remote event (aRemoteEvent = true)
 //
 // Parameters (semantic, not shown in grammar):
 //   - aState : ScriptObjectStateName - State context
@@ -411,7 +403,9 @@ scope eventFunc_scope;
     // Mangle name if remote event (via MangleRemoteEventName)
     // Process event body (if not native)
     // Generate functionDef template with signature + body
-    : eventHeader codeBlock?
+    : ^(EVENT eventHeader codeBlock?)
+      -> template(signature={...}, localVars={...}, body={...})
+    | ^(REMOTEEVENT eventHeader codeBlock?)
       -> template(signature={...}, localVars={...}, body={...})
     ;
 
@@ -487,15 +481,17 @@ stateFuncOrEvent
 // ============================================================================
 //
 // Properties are special variables with optional getter/setter functions.
-// They can be:
-//   - Auto : Compiler generates backing variable and default get/set
-//   - AutoReadOnly : Auto with only getter (no setter)
-//   - Manual : User provides get/set functions
+// Two tree forms in the post-optimization AST:
 //
-// Code Generation:
-//   1. Property definition with type and flags
-//   2. Optional get function (propertyFunc)
-//   3. Optional set function (propertyFunc)
+//   1. PROPERTY (manual/full property):
+//      ^(PROPERTY propertyHeader propertyFunc propertyFunc)
+//      - propertyFunc for get, propertyFunc for set
+//      - Template: fullProp
+//
+//   2. AUTOPROP (auto property):
+//      ^(AUTOPROP propertyHeader ID)
+//      - ID is the backing variable name (mangled)
+//      - Template: autoProp
 // ============================================================================
 
 propertyBlock
@@ -504,9 +500,12 @@ scope propertyBlock_scope;
     // Process optional get/set functions
     // Generate propertyDef template
     // Track property for grouping (script_scope.objUngroupedProps)
-    : propertyHeader propertyFunc* propertyFunc*
-      -> template(name={...}, type={...}, flags={...},
-                  getFunc={...}, setFunc={...})
+    : ^(PROPERTY propertyHeader propertyFunc propertyFunc)
+      -> template(name={...}, type={...}, get={...}, set={...},
+                  userFlags={...}, docString={...})
+    | ^(AUTOPROP propertyHeader ID)
+      -> template(name={...}, type={...}, var={...},
+                  userFlags={...}, docString={...})
     ;
 
 propertyHeader
@@ -625,36 +624,36 @@ scope codeBlock_scope;
 // ----------------------------------------------------------------------------
 // Dispatches to specific statement types based on AST node type.
 //
-// SF1 has 13 statement types (FO4: 11, SF1 adds 2):
-//   1. localDefinition     - Local variable declaration
-//   2. l_value             - Assignment statement
-//   3. lockBlock           - LockGuard block (SF1-specific)
-//   4. tryLockBlock        - TryLockGuard block (SF1-specific)
-//   5. ifBlock             - If/ElseIf/Else conditional
-//   6. whileBlock          - While loop
-//   7. return_stat         - Return statement
-//   8. expression          - Expression statement (function call, etc.)
-//   9. property_set        - Property setter call
-//  10. struct_set          - Struct member assignment
-//  11. NATIVE              - Native function marker (no code generation)
-//  12. NOCODEASSIGN        - No-code assignment marker (optimized out)
-//  13. Empty statement     - No operation
+// SF1 has 9 statement alternatives in the post-optimization AST:
+//   1. localDefinition     - Local variable declaration (VAR node)
+//   2. EQUALS assignment   - ^(EQUALS ID l_value expression)
+//   3. NOCODEASSIGN        - ^(NOCODEASSIGN l_value expression) (optimized out)
+//   4. expression          - Expression statement (function call, etc.)
+//   5. return_stat         - Return statement (RETURN node)
+//   6. lockBlock           - LockGuard block (LOCKGUARD node, SF1-specific)
+//   7. tryLockBlock        - TryLockGuard block (TRYLOCKGUARD node, SF1-specific)
+//   8. ifBlock             - If/ElseIf/Else conditional (IF node)
+//   9. whileBlock          - While loop (WHILE node)
+//
+// Note: property_set and struct_set are NOT standalone statements.
+// They appear inside l_value (via DOT+PAREXPR) or basic_l_value.
+// NATIVE is not a statement type in PapyrusGen (it is handled in functionBlock).
 // ----------------------------------------------------------------------------
 
 statement
 scope statement_scope;
     : localDefinition
-    | l_value
+    | ^(EQUALS ID l_value expression)
+      -> template(target={...}, targetExpressions={...},
+                  source={...}, sourceExpressions={...}, lineNo={...})
+    | ^(NOCODEASSIGN l_value expression)
+      -> template(targetExpressions={...}, sourceExpressions={...})
+    | expression
+    | return_stat
     | lockBlock          // SF1-specific
     | tryLockBlock       // SF1-specific
     | ifBlock
     | whileBlock
-    | return_stat
-    | expression
-    | property_set
-    | struct_set
-    | NATIVE             // No code generation
-    | NOCODEASSIGN       // No code generation
     ;
 
 // ----------------------------------------------------------------------------
@@ -685,45 +684,69 @@ localDefinition
     ;
 
 // ----------------------------------------------------------------------------
-// ASSIGNMENT STATEMENT (l_value)
+// ASSIGNMENT L-VALUE
 // ----------------------------------------------------------------------------
-// Generates: ASSIGN <target> <value>
-// Template: assign
+// In the post-optimization AST, l_value handles three forms:
 //
-// Assignment targets can be:
-//   - Simple variable: x = expr
-//   - Array element: arr[idx] = expr
-//   - Struct member: obj.field = expr
-//   - Property setter: obj.prop = expr (generates property_set call)
+//   1. ^(DOT ^(PAREXPR expression) (property_set | struct_set))
+//      - Dotted member access with property/struct setter
+//      - Template: dot(aTemplate, bTemplate)
 //
-// Compound Assignment:
-//   +=, -=, *=, /=, %= are expanded to: target = target OP expr
+//   2. ^(ARRAYSET idOrConstant ID ^(PAREXPR expression) expression)
+//      - Array element assignment
+//      - Template: arraySet
+//
+//   3. basic_l_value
+//      - Simple variable, function call, property/struct set, array set, DOT
 // ----------------------------------------------------------------------------
 
 l_value
 scope l_value_scope;
-    // Dispatch based on assignment operator:
-    //   - EQUALS: Simple assignment
-    //   - PLUSEQUALS, MINUSEQUALS, etc.: Compound assignment
-    //
-    // For compound assignment, expand to: target = target OP expr
-    // Generate appropriate arithmetic operation
-    : basic_l_value (EQUALS | PLUSEQUALS | MINUSEQUALS | MULTEQUALS |
-                     DIVEQUALS | MODEQUALS) expression
-      -> template(target={...}, value={...}, op={...}, lineNo={...})
+    : ^(DOT ^(PAREXPR expression) (property_set | struct_set))
+      -> template(aTemplate={...}, bTemplate={...})
+    | ^(ARRAYSET idOrConstant ID ^(PAREXPR expression) expression)
+      -> template(sourceName={...}, selfName={...}, index={...},
+                  arrayExpressions={...}, indexExpressions={...}, lineNo={...})
+    | basic_l_value
     ;
+
+// ----------------------------------------------------------------------------
+// BASIC L-VALUE
+// ----------------------------------------------------------------------------
+// In the post-optimization AST, basic_l_value has 6 forms:
+//
+//   1. ^(DOT array_func_or_id basic_l_value)
+//      - Dotted access chain (recursive)
+//      - Template: dot(aTemplate, bTemplate)
+//
+//   2. function_call
+//      - Function call as l-value (result discarded or used)
+//
+//   3. property_set
+//      - Property setter (PROPSET node)
+//
+//   4. struct_set
+//      - Struct member setter (STRUCTSET node)
+//
+//   5. ^(ARRAYSET idOrConstant ID func_or_id expression)
+//      - Array element assignment (flattened form)
+//      - Template: arraySet
+//
+//   6. ID
+//      - Simple variable reference
+// ----------------------------------------------------------------------------
 
 basic_l_value
 scope basic_l_value_scope;
-    // Dispatch based on l-value type:
-    //   - ID: Simple variable
-    //   - dot_atom: Struct member access
-    //   - array_atom: Array element access
-    //   - property_set: Property setter call
-    //   - struct_set: Struct member via setter
-    : ID
-    | dot_atom
-    | array_atom
+    : ^(DOT array_func_or_id basic_l_value)
+      -> template(aTemplate={...}, bTemplate={...})
+    | function_call
+    | property_set
+    | struct_set
+    | ^(ARRAYSET idOrConstant ID func_or_id expression)
+      -> template(sourceName={...}, selfName={...}, index={...},
+                  arrayExpressions={...}, indexExpressions={...}, lineNo={...})
+    | ID
     ;
 
 // ----------------------------------------------------------------------------
@@ -962,9 +985,11 @@ scope return_stat_scope;
     //   - retExpr: Expression code
     //   - scopeExitExpressions: Guard unlocks (SF1)
     //   - lineNo: Source line number
-    : expression?
-      -> template(retValue={...}, retExpr={...},
+    : ^(RETURN expression)
+      -> template(retVal={...}, extraExpressions={...},
                   scopeExitExpressions={...}, lineNo={...})
+    | RETURN
+      -> template(retVal={...}, scopeExitExpressions={...}, lineNo={...})
     ;
 
 // ============================================================================
@@ -1012,7 +1037,7 @@ scope return_stat_scope;
 
 expression returns [string RetValue]
     // Logical OR (lowest precedence)
-    // Short-circuit evaluation: true OR X → true
+    // Short-circuit evaluation: true OR X -> true
     : and_expression (OR and_expression)*
       -> template(leftVar={...}, rightVar={...}, resultVar={...},
                   leftExpr={...}, rightExpr={...}, lineNo={...})
@@ -1020,7 +1045,7 @@ expression returns [string RetValue]
 
 and_expression returns [string RetValue]
     // Logical AND
-    // Short-circuit evaluation: false AND X → false
+    // Short-circuit evaluation: false AND X -> false
     : bool_expression (AND bool_expression)*
       -> template(leftVar={...}, rightVar={...}, resultVar={...},
                   leftExpr={...}, rightExpr={...}, lineNo={...})
@@ -1087,124 +1112,264 @@ cast_atom returns [string RetValue]
                   targetType={...}, lineNo={...})
     ;
 
+// ----------------------------------------------------------------------------
+// DOT ATOM
+// ----------------------------------------------------------------------------
+// In the post-optimization AST, dot_atom has 3 alternatives:
+//
+//   1. ^(DOT dot_atom array_func_or_id)
+//      - Dotted member access chain
+//      - DOT is a tree root with dot_atom (object) and array_func_or_id (member)
+//      - Template: dot(aTemplate, bTemplate)
+//
+//   2. array_atom
+//      - Non-dotted expression (delegates down)
+//
+//   3. constant
+//      - Literal values (INTEGER, FLOAT, STRING, BOOL, NONE)
+//      - Returns the literal text as RetValue
+// ----------------------------------------------------------------------------
+
 dot_atom returns [string RetValue]
-    // Member access (obj.field)
-    // Also handles struct member access (struct.field)
-    : array_atom
-    | array_atom DOT ID
-      -> template(resultVar={...}, object={...}, objectExpr={...},
-                  member={...}, lineNo={...})
+    : ^(DOT dot_atom array_func_or_id)
+      -> template(aTemplate={...}, bTemplate={...})
+    | array_atom
+    | constant
     ;
+
+// ----------------------------------------------------------------------------
+// ARRAY ATOM
+// ----------------------------------------------------------------------------
+// In the post-optimization AST, array_atom has 2 alternatives:
+//
+//   1. ^(ARRAYGET ID ID atom expression)
+//      - Array element access with flattened 2-ID pattern
+//      - First ID: result variable (mangled)
+//      - Second ID: array variable (mangled, stored in selfName)
+//      - atom: array source expression
+//      - expression: index expression
+//      - Template: arrayGet
+//
+//   2. atom
+//      - Non-array expression (delegates down)
+// ----------------------------------------------------------------------------
 
 array_atom returns [string RetValue]
 scope array_atom_scope;
-    // Array element access (arr[idx])
-    // Also handles array function calls (arr.Find(...))
-    : atom
-    | array_func_or_id LBRACKET expression RBRACKET
-      -> template(resultVar={...}, array={...}, arrayExpr={...},
-                  index={...}, indexExpr={...}, lineNo={...})
+    : ^(ARRAYGET ID ID atom expression)
+      -> template(retValue={...}, selfName={...}, index={...},
+                  arrayExpressions={...}, indexExpressions={...}, lineNo={...})
+    | atom
     ;
 
+// ----------------------------------------------------------------------------
+// ATOM
+// ----------------------------------------------------------------------------
+// In the post-optimization AST, atom has 4 alternatives:
+//
+//   1. ^(PAREXPR expression)
+//      - Parenthesized expression
+//      - Returns the child expression's RetValue and Template
+//
+//   2. ^(NEWARRAY expression ID)
+//      - New array creation
+//      - expression: size, ID: result variable
+//      - Template: newArray
+//
+//   3. ^(NEWSTRUCT ID)
+//      - New struct creation
+//      - ID: result variable
+//      - Template: newStruct
+//
+//   4. func_or_id
+//      - Function call or variable reference
+//
+// Note: constant is NOT in atom. It belongs in dot_atom.
+// ----------------------------------------------------------------------------
+
 atom returns [string RetValue]
-    // Atomic expressions (literals, identifiers, function calls, parentheses)
-    : func_or_id
-    | constant
-    | NEW anyType LBRACKET expression RBRACKET     // New array
-      -> template(resultVar={...}, type={...}, size={...},
-                  sizeExpr={...}, lineNo={...})
-    | NEW anyType                                  // New struct
-      -> template(resultVar={...}, type={...}, lineNo={...})
-    | LPAREN expression RPAREN                     // Parenthesized expression
+    : ^(PAREXPR expression)
       -> { /* Return child expression */ }
+    | ^(NEWARRAY expression ID)
+      -> template(dest={...}, size={...}, sizeExpressions={...}, lineNo={...})
+    | ^(NEWSTRUCT ID)
+      -> template(dest={...}, lineNo={...})
+    | func_or_id
     ;
+
+// ----------------------------------------------------------------------------
+// ARRAY FUNC OR ID
+// ----------------------------------------------------------------------------
+// In the post-optimization AST, array_func_or_id has 2 alternatives:
+//
+//   1. ^(ARRAYGET ID ID func_or_id expression)
+//      - Array element access with func_or_id as source
+//      - First ID: result variable
+//      - Second ID: array variable (selfName)
+//      - func_or_id: array source expression
+//      - expression: index expression
+//      - Template: arrayGet
+//
+//   2. func_or_id
+//      - Non-array expression (delegates down)
+// ----------------------------------------------------------------------------
 
 array_func_or_id returns [string RetValue]
 scope array_func_or_id_scope;
-    // Array function calls or array variable reference
-    // Array functions (13 total):
-    //   - Find, RFind, FindStruct, RFindStruct
-    //   - GetAllMatchingStructs
-    //   - Add, Insert, Remove, RemoveLast, Clear
-    //   - Length (property access)
-    : ID
-    | ID DOT ID callParameters?
-      -> template(resultVar={...}, array={...}, method={...},
-                  args={...}, paramExpressions={...}, lineNo={...})
+    : ^(ARRAYGET ID ID func_or_id expression)
+      -> template(retValue={...}, selfName={...}, index={...},
+                  arrayExpressions={...}, indexExpressions={...}, lineNo={...})
+    | func_or_id
     ;
+
+// ----------------------------------------------------------------------------
+// FUNC OR ID
+// ----------------------------------------------------------------------------
+// In the post-optimization AST, func_or_id has 5 alternatives:
+//
+//   1. function_call
+//      - Any function call (CALL, CALLPARENT, CALLGLOBAL, array ops)
+//
+//   2. ^(PROPGET ID ID ID)
+//      - Property getter
+//      - First ID: selfName (object), Second ID: property name, Third ID: retValue
+//      - Template: propGet
+//
+//   3. ^(STRUCTGET ID ID ID)
+//      - Struct member getter
+//      - First ID: selfName (struct), Second ID: member name, Third ID: retValue
+//      - Template: structGet
+//
+//   4. ID
+//      - Simple variable reference
+//      - RetValue = mangled variable name
+//
+//   5. ^(LENGTH ID ID)
+//      - Array length access
+//      - First ID: selfName (array), Second ID: retValue
+//      - Template: arrayLength
+// ----------------------------------------------------------------------------
 
 func_or_id returns [string RetValue]
 scope func_or_id_scope;
-    // Function call or identifier
-    : ID
-    | function_call
+    : function_call
+    | ^(PROPGET ID ID ID)
+      -> template(selfName={...}, name={...}, retValue={...}, lineNo={...})
+    | ^(STRUCTGET ID ID ID)
+      -> template(selfName={...}, name={...}, retValue={...}, lineNo={...})
+    | ID
+    | ^(LENGTH ID ID)
+      -> template(selfName={...}, retValue={...}, lineNo={...})
     ;
 
 // ============================================================================
 // PROPERTY AND STRUCT SETTERS
 // ============================================================================
 //
-// Property and struct setters are special assignment operations that generate
-// function calls instead of direct assignments.
+// Property and struct setters in the post-optimization AST use flattened
+// tree forms with PROPSET/STRUCTSET root tokens.
 //
 // Property Setter:
-//   obj.prop = value
-//   → callLocal obj "set_prop" value
+//   ^(PROPSET ID ID idOrConstant)
+//   - First ID: selfName (object), Second ID: property name
+//   - idOrConstant: value to set
+//   - Template: propSet
 //
 // Struct Setter:
-//   struct.field = value
-//   → structset struct field value
+//   ^(STRUCTSET ID ID idOrConstant)
+//   - First ID: selfName (struct), Second ID: member name
+//   - idOrConstant: value to set
+//   - Template: structSet
 // ============================================================================
 
 property_set
 scope property_set_scope;
     // Property setter call
-    // Generate callLocal template with property setter name
-    : ID DOT ID EQUALS expression
-      -> template(object={...}, property={...}, value={...},
-                  valueExpr={...}, lineNo={...})
+    // Generate propSet template with property setter name
+    : ^(PROPSET ID ID idOrConstant)
+      -> template(selfName={...}, name={...}, param={...}, lineNo={...})
     ;
 
 struct_set
 scope struct_set_scope;
     // Struct member assignment
-    // Generate structset template
-    : ID DOT ID EQUALS expression
-      -> template(struct={...}, member={...}, value={...},
-                  valueExpr={...}, lineNo={...})
+    // Generate structSet template
+    : ^(STRUCTSET ID ID idOrConstant)
+      -> template(selfName={...}, name={...}, param={...}, lineNo={...})
     ;
 
 // ============================================================================
 // FUNCTION CALLS
 // ============================================================================
 //
-// Function calls come in three varieties:
-//   1. Local calls:  obj.func(args)   → callLocal
-//   2. Parent calls: parent.func(args) → callParent
-//   3. Global calls: Type.func(args)   → callGlobal
+// Function calls in the post-optimization AST come in 13 varieties.
+// All use the flattened pattern: ROOT ID ID CALLPARAMS parameters?
 //
-// All function calls return a temporary variable holding the result.
+// Standard calls (3):
+//   1. ^(CALL ID ID ID CALLPARAMS parameters?)           - callLocal
+//   2. ^(CALLPARENT ID ID ID CALLPARAMS parameters?)     - callParent
+//   3. ^(CALLGLOBAL ID ID ID CALLPARAMS parameters?)     - callGlobal
 //
-// Special cases:
-//   - Array function calls (handled by array_func_or_id)
-//   - Property setter calls (handled by property_set)
-//   - Struct setters (handled by struct_set)
+// Array function calls (10):
+//   4. ^(ARRAYADD ID ID CALLPARAMS parameters?)           - arrayAdd
+//   5. ^(ARRAYINSERT ID ID CALLPARAMS parameters?)        - arrayInsert
+//   6. ^(ARRAYREMOVELAST ID ID CALLPARAMS parameters?)    - arrayRemoveLast
+//   7. ^(ARRAYREMOVE ID ID CALLPARAMS parameters?)        - arrayRemove
+//   8. ^(ARRAYCLEAR ID ID CALLPARAMS parameters?)         - arrayClear
+//   9. ^(ARRAYFIND ID ID CALLPARAMS parameters?)          - arrayFind
+//  10. ^(ARRAYRFIND ID ID CALLPARAMS parameters?)         - arrayRFind
+//  11. ^(ARRAYFINDSTRUCT ID ID CALLPARAMS parameters?)    - arrayFindStruct
+//  12. ^(ARRAYRFINDSTRUCT ID ID CALLPARAMS parameters?)   - arrayRFindStruct
+//  13. ^(ARRAYGETALLMATCHINGSTRUCTS ID ID CALLPARAMS parameters?)
+//                                                         - arrayGetAllMatchingStructs
+//
+// Standard calls have 3 IDs (selfName/scriptName, funcName, retValue).
+// Array calls have 2 IDs (selfName, retValue).
+// CALLPARAMS is always present (may be empty tree or contain parameters).
 // ============================================================================
 
 function_call returns [string RetValue]
 scope function_call_scope;
-    // Dispatch based on call type (CALL, CALLPARENT, CALLGLOBAL)
-    // Extract function name and parameters
-    // Generate appropriate call template (callLocal, callParent, callGlobal)
-    // Return temporary variable holding result
-    : CALL ID ID ID callParameters?
+    // Standard calls
+    : ^(CALL ID ID ID CALLPARAMS parameters?)
       -> template(selfName={...}, name={...}, retValue={...},
                   args={...}, paramExpressions={...}, lineNo={...})
-    | CALLPARENT ID ID ID callParameters?
+    | ^(CALLPARENT ID ID ID CALLPARAMS parameters?)
       -> template(name={...}, retValue={...}, args={...},
                   paramExpressions={...}, lineNo={...})
-    | CALLGLOBAL ID ID ID callParameters?
-      -> template(scriptName={...}, name={...}, retValue={...},
+    | ^(CALLGLOBAL ID ID ID CALLPARAMS parameters?)
+      -> template(objType={...}, name={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    // Array function calls
+    | ^(ARRAYADD ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYINSERT ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYREMOVELAST ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYREMOVE ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYCLEAR ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYFIND ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYRFIND ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYFINDSTRUCT ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYRFINDSTRUCT ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
+                  args={...}, paramExpressions={...}, lineNo={...})
+    | ^(ARRAYGETALLMATCHINGSTRUCTS ID ID CALLPARAMS parameters?)
+      -> template(selfName={...}, retValue={...},
                   args={...}, paramExpressions={...}, lineNo={...})
     ;
 
@@ -1303,12 +1468,12 @@ userFlags
 // String Handling:
 //   - MakeQuotedString(string aOriginalString) : string
 //     Escapes and quotes string literals for assembly output.
-//     Example: foo\nbar → "foo\\nbar"
+//     Example: foo\nbar -> "foo\\nbar"
 //
 // Variable Name Mangling:
 //   - MangleVariableName(string aOriginalName) : string
 //     Generates mangled name for shadowed variable.
-//     Example: myVar → ::mangled_myVar_0
+//     Example: myVar -> ::mangled_myVar_0
 //
 //   - MangleFunctionVariables(ScriptFunctionType aFunction) : void
 //     Mangles all variables in function scope to handle shadowing.
@@ -1326,7 +1491,7 @@ userFlags
 // Event Name Mangling:
 //   - MangleRemoteEventName(ScriptFunctionName aName) : string
 //     Mangles remote event names.
-//     Example: OnActivate → ::remote_OnActivate
+//     Example: OnActivate -> ::remote_OnActivate
 //
 // Label Generation:
 //   - GenerateLabel() : string
@@ -1346,7 +1511,7 @@ userFlags
 //
 // Flag Handling:
 //   - ConstructUserFlagRefInfo() : Dictionary<string, int>
-//     Builds dictionary of flag name → flag index.
+//     Builds dictionary of flag name -> flag index.
 //     Used for emitting flag references in assembly.
 //
 // Property Grouping:

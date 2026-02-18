@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-tree grammar PapyrusReleaseProcessorFO4;
+tree grammar PapyrusReleaseProcessorSF1;
 
 options {
     tokenVocab = PapyrusLexerSF1;

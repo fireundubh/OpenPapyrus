@@ -35,7 +35,7 @@ options { tokenVocab=PapyrusLexerSF1; ASTLabelType=CommonTree; language=CSharp3;
     scope function {
         ScriptObjectStateName stateName;
         string propertyName;
-        ScriptFunctionType functionType;
+        ScriptFunctionType pfunctionType;
     }
 }
 
@@ -46,37 +46,37 @@ options { tokenVocab=PapyrusLexerSF1; ASTLabelType=CommonTree; language=CSharp3;
     }
 }
 
-// Event function scope tracks remote event flag
+// Event function scope tracks remote event flag, state, event name, and function type
 @members {
     scope eventFunc {
         bool remoteEvent;
         ScriptObjectStateName stateName;
         ScriptFunctionName eventName;
-        ScriptFunctionType functionType;
+        ScriptFunctionType pfunctionType;
     }
 }
 
-// Property block scope tracks property name
+// Property block scope tracks which property function is the getter
 @members {
     scope propertyBlock {
-        string propertyName;
+        bool func0IsGet;
     }
 }
 
 // Code block scope tracks function type, current scope, temp vars, and child scope index
 @members {
     scope codeBlock {
-        ScriptFunctionType functionType;
-        ScriptScope currentScope;
-        Dictionary<string, ScriptVariableType> tempVars;
-        int nextScopeChild;
+        ScriptFunctionType pfunctionType;
+        ScriptScope pcurrentScope;
+        Dictionary<string, ScriptVariableType> ptempVars;
+        int inextScopeChild;
     }
 }
 
 // Statement scope tracks value expression tree for assignments
 @members {
     scope statement {
-        CommonTree valueExpressionTree;
+        CommonTree pvalueExpressionTree;
     }
 }
 
@@ -87,94 +87,80 @@ options { tokenVocab=PapyrusLexerSF1; ASTLabelType=CommonTree; language=CSharp3;
     }
 }
 
-// L-value scope tracks variable type and name
+// L-value scope tracks token, index expression tree, and struct flag
 @members {
     scope l_value {
-        ScriptVariableType varType;
-        string varName;
+        IToken pvarToken;
+        CommonTree pindexExpressionTree;
+        bool bisStruct;
     }
 }
 
-// Basic l-value scope tracks owner type and expression trees
+// Basic l-value scope tracks struct/property flags, token, and index expression
 @members {
     scope basic_l_value {
-        ScriptVariableType ownerType;
-        CommonTree baseTree;
-        CommonTree indexTree;
+        bool bisStruct;
+        bool bisProperty;
+        bool bisLocalAutoProperty;
+        IToken pvarToken;
+        CommonTree pindexExpressionTree;
     }
 }
 
-// Expression scopes track result type, variable name, and token
+// Expression scopes track expression trees for code generation
 @members {
     scope bool_expression {
-        ScriptVariableType type;
-        string varName;
-        IToken varToken;
-        CommonTree aTree;
-        CommonTree bTree;
+        CommonTree paTree;
+        CommonTree pbTree;
     }
 }
 
 @members {
     scope add_expression {
-        ScriptVariableType type;
-        string varName;
-        IToken varToken;
-        bool isInt;
-        bool isConcat;
-        CommonTree aTree;
-        CommonTree bTree;
+        bool bisInt;
+        bool bisConcat;
+        CommonTree paTree;
+        CommonTree pbTree;
     }
 }
 
 @members {
     scope mult_expression {
-        ScriptVariableType type;
-        string varName;
-        IToken varToken;
-        bool isInt;
-        CommonTree aTree;
-        CommonTree bTree;
+        bool bisInt;
+        CommonTree paTree;
+        CommonTree pbTree;
     }
 }
 
 @members {
     scope unary_expression {
-        ScriptVariableType type;
-        string varName;
-        IToken varToken;
+        bool bisInt;
     }
 }
 
 @members {
     scope array_atom {
-        ScriptVariableType type;
-        string varName;
-        IToken varToken;
+        CommonTree pindexExpressionTree;
     }
 }
 
 @members {
     scope array_func_or_id {
-        ScriptVariableType type;
-        string varName;
-        IToken varToken;
-        ScriptVariableType ownerType;
+        CommonTree pindexExpressionTree;
     }
 }
 
 @members {
     scope func_or_id {
-        ScriptVariableType type;
-        string varName;
-        IToken varToken;
-        ScriptVariableType ownerType;
+        bool bisStruct;
+        bool bisProperty;
+        bool bisLocalAutoProperty;
     }
 }
 
 @members {
     scope return_stat {
-        CommonTree valueTree;
+        CommonTree pexpressionTree;
     }
 }
 
@@ -189,43 +175,52 @@ options { tokenVocab=PapyrusLexerSF1; ASTLabelType=CommonTree; language=CSharp3;
 @members {
     scope tryLockBlock {
         ScriptScope childScope;
+        string resultVarName;
     }
 }
 
 @members {
     scope elseTryLockBlock {
         ScriptScope childScope;
+        string resultVarName;
     }
 }
 
 // Control flow scopes
 @members {
     scope ifBlock {
-        ScriptScope childScope;
+        ScriptScope pchildScope;
     }
 }
 
 @members {
     scope elseIfBlock {
-        ScriptScope childScope;
+        ScriptScope pchildScope;
     }
 }
 
 @members {
     scope elseBlock {
-        ScriptScope childScope;
+        ScriptScope pchildScope;
     }
 }
 
 @members {
     scope whileBlock {
-        ScriptScope childScope;
+        ScriptScope pchildScope;
     }
 }
 
 @members {
     scope function_call {
-        CommonTree paramsTree;
+        List<string> ptargetParamNames;
+        List<ScriptVariableType> pparamTypes;
+        List<string> pparamVarNames;
+        List<IToken> pparamTokens;
+        List<CommonTree> pparamExpressions;
+        bool isGlobal;
+        bool isArray;
+        ScriptVariableType pactualReturnType;
     }
 }
 
@@ -305,7 +300,7 @@ customEventDefinition
 // Type checks: Function signature, parameter types, return type, body statements
 // Post-processing: CheckFunction() validates entire function definition
 // SF1: Validates RequiresGuard flags and reports unused guards in property functions
-function[ScriptObjectStateName stateName, string propertyName]
+function[ScriptObjectStateName stateName, string propertyName] returns [ScriptFunctionName Name]
     scope { function; }
     : ^(FUNCTION
         functionHeader
@@ -315,7 +310,7 @@ function[ScriptObjectStateName stateName, string propertyName]
 
 // Type checks: Return type validity, parameter types, function name uniqueness
 // SF1: Function may have RequiresGuard user flag listing required guards
-functionHeader
+functionHeader returns [ScriptFunctionName FuncName]
     scope { functionHeader; }
     : ^(HEADER
         type
@@ -419,7 +414,7 @@ propertyBlock
       )
     ;
 
-propertyHeader
+propertyHeader returns [string Name]
     : ^(HEADER
         type
         ID
@@ -430,7 +425,7 @@ propertyHeader
 
 // SF1: Property functions may have RequiresGuard flags
 // Type checks: Getter must match property type, setter must take property type
-propertyFunc
+propertyFunc returns [bool IsGet]
     : ^(PROPFUNC function)
     | PROPFUNC
     ;
@@ -472,7 +467,7 @@ structBlock
       )
     ;
 
-structHeader
+structHeader returns [string sName]
     : ^(HEADER
         ID
         DOCSTRING?
@@ -613,7 +608,7 @@ return_stat
 // L-value: Target of assignment (variable, property, array element)
 // Type checks: L-value must be writable, type must be known
 // SF1: Validates guard locks for variable/property access
-l_value
+l_value returns [ScriptVariableType pVarType, string sVarName]
     scope { l_value; }
     : ^(DOT
         ^(PAREXPR expression)
@@ -629,7 +624,7 @@ l_value
     ;
 
 // Basic l-value: Simple variable or property access
-basic_l_value
+basic_l_value returns [ScriptVariableType pType, string sVarName]
     scope { basic_l_value; }
     : ^(DOT
         array_func_or_id
@@ -652,7 +647,7 @@ basic_l_value
 
 // OR expression: Logical OR with short-circuit semantics
 // Type inference: Result is always bool
-expression returns [ScriptVariableType type, string varName, IToken varToken]
+expression returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     : ^(OR
         ID
         expression
@@ -663,7 +658,7 @@ expression returns [ScriptVariableType type, string varName, IToken varToken]
 
 // AND expression: Logical AND with short-circuit semantics
 // Type inference: Result is always bool
-and_expression returns [ScriptVariableType type, string varName, IToken varToken]
+and_expression returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     : ^(AND
         ID
         and_expression
@@ -675,7 +670,7 @@ and_expression returns [ScriptVariableType type, string varName, IToken varToken
 // Boolean comparison expressions
 // Type inference: Result is always bool
 // Type checks: Operands must be comparable (HandleComparisonExpression)
-bool_expression returns [ScriptVariableType type, string varName, IToken varToken]
+bool_expression returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     scope { bool_expression; }
     : ^(EQ
         bool_expression
@@ -707,7 +702,7 @@ bool_expression returns [ScriptVariableType type, string varName, IToken varToke
 // Addition/subtraction expressions
 // Type inference: int + int = int, float + float = float, string + X = string
 // Type checks: Operands must be numeric or string (for concat)
-add_expression returns [ScriptVariableType type, string varName, IToken varToken]
+add_expression returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     scope { add_expression; }
     : ^(PLUS
         add_expression
@@ -723,7 +718,7 @@ add_expression returns [ScriptVariableType type, string varName, IToken varToken
 // Multiplication/division/modulo expressions
 // Type inference: int * int = int, float * float = float
 // Type checks: Operands must be numeric, no division by zero (runtime)
-mult_expression returns [ScriptVariableType type, string varName, IToken varToken]
+mult_expression returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     scope { mult_expression; }
     : ^(MULT
         mult_expression
@@ -743,7 +738,7 @@ mult_expression returns [ScriptVariableType type, string varName, IToken varToke
 // Unary expressions (negation, logical NOT)
 // Type inference: -int = int, -float = float, NOT bool = bool
 // Type checks: Operand must be numeric (for -) or bool (for NOT)
-unary_expression returns [ScriptVariableType type, string varName, IToken varToken]
+unary_expression returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     scope { unary_expression; }
     : ^(UNARY_MINUS cast_atom)
     | ^(NOT cast_atom)
@@ -752,7 +747,7 @@ unary_expression returns [ScriptVariableType type, string varName, IToken varTok
 
 // Cast expression: Explicit type conversion
 // Type checks: Cast must be valid (CheckCast)
-cast_atom returns [ScriptVariableType type, string varName, IToken varToken]
+cast_atom returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     : ^(AS
         ID
         dot_atom
@@ -763,7 +758,7 @@ cast_atom returns [ScriptVariableType type, string varName, IToken varToken]
 // Dot accessor expression: Member access (property, function)
 // Type checks: Member must exist on owner type
 // SF1: Validates guard locks for property/function access
-dot_atom returns [ScriptVariableType type, string varName, IToken varToken]
+dot_atom returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     : ^(DOT
         dot_atom
         array_func_or_id
@@ -774,7 +769,7 @@ dot_atom returns [ScriptVariableType type, string varName, IToken varToken]
 
 // Array element access
 // Type checks: Index must be int, base must be array type
-array_atom returns [ScriptVariableType type, string varName, IToken varToken]
+array_atom returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     scope { array_atom; }
     : ^(ARRAYGET
         ID
@@ -787,7 +782,7 @@ array_atom returns [ScriptVariableType type, string varName, IToken varToken]
 
 // Atomic expressions (constants, variables, function calls, parenthesized expressions)
 // Type inference: Type depends on atomic element
-atom returns [ScriptVariableType type, string varName, IToken varToken]
+atom returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     : ^(PAREXPR expression)
     | ^(NEW INTEGER ID)          // Array allocation: new Type[size]
     | ^(NEWSTRUCT ID)            // FO4: Struct instantiation
@@ -800,7 +795,7 @@ atom returns [ScriptVariableType type, string varName, IToken varToken]
 
 // Array element access or function call in array context
 // SF1: Validates guard locks for function calls
-array_func_or_id returns [ScriptVariableType type, string varName, IToken varToken, ScriptVariableType ownerType]
+array_func_or_id returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     scope { array_func_or_id; }
     : ^(ARRAYGET
         ID
@@ -814,7 +809,7 @@ array_func_or_id returns [ScriptVariableType type, string varName, IToken varTok
 // Function call, property access, or simple identifier
 // Type inference: Variable from scope, property from owner type, function return type
 // SF1: Validates guard locks for property/function access
-func_or_id returns [ScriptVariableType type, string varName, IToken varToken, ScriptVariableType ownerType]
+func_or_id returns [ScriptVariableType pType, string sVarName, IToken pVarToken]
     scope { func_or_id; }
     : function_call
     | ^(PROPGET
@@ -846,7 +841,7 @@ property_set
 // Function call with parameters
 // Type checks: Function exists, parameters match signature, return type
 // SF1: Validates guard locks for function call, checks access modifiers
-function_call returns [ScriptVariableType type]
+function_call returns [ScriptVariableType pType, string VarName, IToken pVarToken]
     scope { function_call; }
     : ^(CALL
         ID              // Result temp var
@@ -910,7 +905,7 @@ parameter
 
 // Type specification (ID or ID[] for arrays, BASETYPE for primitives)
 // Type checks: Type must be known, namespace resolution if qualified
-type returns [ScriptVariableType type]
+type returns [ScriptVariableType pType]
     : ID                        // Simple type or namespace-qualified (ID:ID:ID)
     | ^(ID LBRACKET RBRACKET)  // Array type
     | BASETYPE                  // Built-in type (int, float, bool, string)
@@ -922,15 +917,17 @@ type returns [ScriptVariableType type]
 // ============================================================================
 
 // Constant values (literals)
-constant
-    : number
-    | STRING
-    | BOOL
-    | NONE
+// Returns type and token for type checking in field initializers and default parameters
+constant returns [ScriptVariableType pType, IToken pVarToken]
+    : number    { $pType = $number.pType; $pVarToken = $number.pVarToken; }
+    | STRING    { $pType = new ScriptVariableType("string"); $pVarToken = $STRING.token; }
+    | BOOL      { $pType = new ScriptVariableType("bool"); $pVarToken = $BOOL.token; }
+    | NONE      { $pType = new ScriptVariableType("none"); $pVarToken = $NONE.token; }
     ;
 
 // Numeric literals (sign handled in unary_expression)
-number
-    : INTEGER
-    | FLOAT
+// Returns type and token for propagation to constant rule
+number returns [ScriptVariableType pType, IToken pVarToken]
+    : INTEGER   { $pType = new ScriptVariableType("int"); $pVarToken = $INTEGER.token; }
+    | FLOAT     { $pType = new ScriptVariableType("float"); $pVarToken = $FLOAT.token; }
     ;
