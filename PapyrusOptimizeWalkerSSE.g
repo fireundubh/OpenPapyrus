@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-parser grammar PapyrusOptimizeWalkerSSE;
+tree grammar PapyrusOptimizeWalkerSSE;
 
 options { tokenVocab=PapyrusLexerSSE; language=CSharp3; }
 
@@ -82,7 +82,7 @@ stateFuncOrEvent      : function
                       ;
 
 // Property block
-propertyBlock         : PROPERTY propertyHeader propertyFunc propertyBlock
+propertyBlock         : PROPERTY propertyHeader propertyFunc propertyFunc
                       | AUTOPROP propertyHeader ID
                       ;
 

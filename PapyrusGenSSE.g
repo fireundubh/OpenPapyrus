@@ -291,7 +291,7 @@ scope function_call {
 
 // Auto-cast scope (1 field)
 scope autoCast {
-    string sselfName;              // Self reference variable
+    string ssource;                // Source variable for auto-cast
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -332,7 +332,7 @@ definitionOrBlock
 // Variable/field definition
 fieldDefinition
     scope { fieldDefinition; }
-    : ^(VAR type ID USER_FLAGS? constant?)
+    : ^(VAR type ID USER_FLAGS constant?)
       // Template: variableDef(name, type, flags, initialValue, lineNo)
     ;
 
@@ -422,8 +422,8 @@ propertyFunc[string asPropName]
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 // Function/event body
-// Semantic parameters: akFunctionType (function metadata), akCurrentScope (variable scope)
-codeBlock[ScriptFunctionType akFunctionType, ScriptScope akCurrentScope]
+// Semantic parameters: akStatements (output accumulator), akVarDefinitions (output accumulator), akCurrentScope (variable scope)
+codeBlock[IList akStatements, IList akVarDefinitions, ScriptScope akCurrentScope]
     scope { codeBlock; }
     : ^(BLOCK statement*)
       // Accumulates variable definitions and statements
@@ -447,7 +447,7 @@ statement
     ;
 
 // Local variable definition
-localDefinition returns [string sVarName, string sExprVar, int iLineNo, IList kExprST, StringTemplate kAutoCastST]
+localDefinition returns [string sVarName, string sExprVar, int iLineNo, StringTemplate kExprST, StringTemplate kAutoCastST]
     : ^(VAR type ID autoCast? expression?)
       // Template: localDef(name, type, initialValue, autoCast, expressions, lineNo)
     ;
@@ -689,12 +689,16 @@ whileBlock
 // Function call (used within expressions)
 function_call returns [string sRetValue]
     scope { function_call; }
-    : ^(CALL ID ID parameters)
-      // Template: callLocal(target, funcName, params, lineNo)
-    | ^(CALLPARENT ID ID parameters)
-      // Template: callParent(target, funcName, params, lineNo)
-    | ^(CALLGLOBAL ID ID ID parameters)
+    : ^(CALL ID ID ID ^(CALLPARAMS parameters?))
+      // Template: callLocal(target, funcName, retValue, params, lineNo)
+    | ^(CALLPARENT ID ID ID ^(CALLPARAMS parameters?))
+      // Template: callParent(target, funcName, retValue, params, lineNo)
+    | ^(CALLGLOBAL ID ID ID ^(CALLPARAMS parameters?))
       // Template: callGlobal(target, scriptName, funcName, params, lineNo)
+    | ^(ARRAYFIND ID ID ^(CALLPARAMS parameters?))
+      // Template: arrayFind(target, retValue, params, lineNo)
+    | ^(ARRAYRFIND ID ID ^(CALLPARAMS parameters?))
+      // Template: arrayRFind(target, retValue, params, lineNo)
     ;
 
 // Call parameters

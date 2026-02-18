@@ -275,11 +275,10 @@ whileBlock            : ^(WHILE expression codeBlock)
 // - GLOBAL functions not called on variables
 // - Member functions not called on types alone
 // - Array functions (Find, RFind) called on arrays
-function_call         : ^(CALL ID ^(CALLPARAMS parameters?))        // Member function call
-                      | ^(CALLPARENT ID ^(CALLPARAMS parameters?))  // Parent function call
-                      | ^(CALLGLOBAL ID ^(CALLPARAMS parameters?))  // Global function call
-                      | ^(ARRAYFIND ID ^(CALLPARAMS parameters?))   // Array.Find
-                      | ^(ARRAYRFIND ID ^(CALLPARAMS parameters?))  // Array.RFind
+// Input is always ^(CALL ...) — the type walker rewrites the CALL token to
+// CALLPARENT, CALLGLOBAL, ARRAYFIND, or ARRAYRFIND via CreateCallTree()
+// based on semantic analysis (global function, parent caller, array method, etc.)
+function_call         : ^(CALL ID ^(CALLPARAMS parameters?))
                       ;
 
 parameters            : parameter*
