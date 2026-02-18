@@ -27,6 +27,7 @@ tree grammar PapyrusGenFO4;
 options {
     tokenVocab = PapyrusParserFO4;
     ASTLabelType = CommonTree;
+    language = CSharp3;
 }
 
 /*

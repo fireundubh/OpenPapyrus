@@ -24,7 +24,7 @@
 
 tree grammar PapyrusTypeWalkerSSE;
 
-options { tokenVocab=PapyrusLexerSSE; ASTLabelType=CommonTree; }
+options { tokenVocab=PapyrusLexerSSE; ASTLabelType=CommonTree; language=CSharp3; }
 
 // Top-level script structure
 // Semantic parameters: ScriptObjectType akObj, Compiler akCompiler,

@@ -24,7 +24,7 @@
 
 parser grammar FlagsParser;
 
-options { tokenVocab=FlagsLexer; language=Python3; }
+options { tokenVocab=FlagsLexer; }
 
 flags           : flagDefinition+ EOF
                 ;

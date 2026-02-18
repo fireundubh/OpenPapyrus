@@ -27,6 +27,7 @@ tree grammar PapyrusGenSSE;
 options {
     tokenVocab = PapyrusParserSSE;
     ASTLabelType = CommonTree;
+    language = CSharp3;
     output = template;
 }
 

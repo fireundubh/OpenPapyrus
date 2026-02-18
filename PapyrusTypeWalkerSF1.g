@@ -24,7 +24,7 @@
 
 tree grammar PapyrusTypeWalkerSF1;
 
-options { tokenVocab=PapyrusLexerSF1; ASTLabelType=CommonTree; }
+options { tokenVocab=PapyrusLexerSF1; ASTLabelType=CommonTree; language=CSharp3; }
 
 // ============================================================================
 // SCOPE DECLARATIONS

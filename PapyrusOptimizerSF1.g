@@ -24,7 +24,7 @@
 
 parser grammar PapyrusOptimizerSF1;
 
-options { tokenVocab=PapyrusLexerSF1; language=Python3; }
+options { tokenVocab=PapyrusLexerSF1; language=CSharp3; }
 
 // ============================================================================
 // TOP-LEVEL SCRIPT STRUCTURE

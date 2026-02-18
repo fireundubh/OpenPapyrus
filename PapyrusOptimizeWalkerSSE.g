@@ -24,7 +24,7 @@
 
 parser grammar PapyrusOptimizeWalkerSSE;
 
-options { tokenVocab=PapyrusLexerSSE; language=Python3; }
+options { tokenVocab=PapyrusLexerSSE; language=CSharp3; }
 
 // Top-level script structure
 // Semantic parameters: ScriptObjectType akObj, OptimizePass aePassType
