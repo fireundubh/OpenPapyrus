@@ -251,6 +251,9 @@ eventFunc[string asState]
 scope {
     string sstate;                  // State name
     string sfuncName;               // Event name
+    string sreturnType;             // Return type string (always "None" for events)
+    bool bisNative;                 // Is native event
+    bool bisGlobal;                 // Is global event
     IList pfuncParamsA;             // Parameter list
     IList pfuncVarDefinitionsA;     // Local variable definitions
     IList pstatementsA;             // Statement list
@@ -259,9 +262,9 @@ scope {
     ScriptFunctionType pfuncType;   // Type info from semantic analysis
 }
 returns [string sName]
-    : ^(EVENT eventHeader[false] codeBlock)
+    : ^(EVENT eventHeader[false] codeBlock?)
       -> functionDef(...)
-    | ^(REMOTEEVENT eventHeader[true] codeBlock)
+    | ^(REMOTEEVENT eventHeader[true] codeBlock?)
       -> functionDef(...)
     ;
 
@@ -371,16 +374,13 @@ propertyBlock
 scope {
     string spropName;       // Property name
     string spropType;       // Property type string
-    string sgroupName;      // Property group name (if in group)
-    string spropFlags;      // User flags bitmask
-    string sconst;          // "const" or ""
-    string sinitialValue;   // Initial value (for auto props)
+    string suserFlags;      // User flags bitmask
     string sdocString;      // Documentation string
 }
 returns [string sName]
     : ^(PROPERTY propertyHeader propertyFunc propertyFunc)
       -> fullProp(...)
-    | ^(AUTOPROP propertyHeader constant?)
+    | ^(AUTOPROP propertyHeader ID)
       -> autoProp(...)
     ;
 
@@ -396,7 +396,7 @@ returns [string sName]
 */
 
 propertyHeader
-    : ^(HEADER type ID USER_FLAGS CONST? constant? DOCSTRING?)
+    : ^(HEADER type ID USER_FLAGS DOCSTRING?)
       // Stores in propertyBlock_scope, no template output
     ;
 
@@ -619,6 +619,11 @@ returns [string sVarName, string sExprVar, StringTemplate pExprST, int iLineNo]
 
   Processes left-hand side of assignment (3 alternatives).
 
+  Post-optimization AST patterns:
+    1. DOT with PAREXPR receiver → property_set or struct_set
+    2. ARRAYSET with idOrConstant, ID, PAREXPR, expression
+    3. basic_l_value fallthrough
+
   Scope Stack: l_value_scope
 */
 
@@ -626,9 +631,11 @@ l_value
 scope {
     string sselfName;  // Self variable name
 }
-    : basic_l_value                      // Simple variable/property
-    | ^(ARRAYSET l_value expression expression)  // Array element assignment
-    | ^(PROPSET l_value ID expression)   // Property assignment (calls setter)
+    : ^(DOT ^(PAREXPR expression) (property_set | struct_set))
+      // Dot-access with parenthesized receiver → property or struct setter
+    | ^(ARRAYSET idOrConstant ID ^(PAREXPR expression) expression)
+      // Array element assignment: source, selfVar, array index (via PAREXPR), value expression
+    | basic_l_value                      // Simple variable/property/function call
     ;
 
 /*
@@ -636,7 +643,7 @@ scope {
   BASIC L-VALUE (SIMPLE ASSIGNMENT TARGET)
 ================================================================================
 
-  Processes basic assignable values (4 alternatives).
+  Processes basic assignable values (6 alternatives).
 
   Scope Stack: basic_l_value_scope
 */
@@ -645,10 +652,12 @@ basic_l_value
 scope {
     string sselfName;  // Self variable name
 }
-    : ID                                 // Simple variable
-    | ^(DOT basic_l_value ID)            // Property access
-    | ^(ARRAYGET basic_l_value expression) // Array element
-    | ^(STRUCTGET basic_l_value ID)      // Struct member (FO4)
+    : ^(DOT array_func_or_id basic_l_value) // Dot access: array_func_or_id provides receiver, recurse
+    | function_call                      // Function call (as assignment target for side effects)
+    | property_set                       // Property setter
+    | struct_set                         // Struct member setter (FO4)
+    | ^(ARRAYSET idOrConstant ID func_or_id expression) // Array element assignment
+    | ID                                 // Simple variable
     ;
 
 /*
@@ -844,9 +853,10 @@ returns [string sRetValue]
 
 dot_atom
 returns [string sRetValue]
-    : ^(DOT dot_atom ID)
-      // Property or struct member access
+    : ^(DOT dot_atom array_func_or_id)
+      // Member access: dot_atom provides receiver, array_func_or_id provides operation
     | array_atom
+    | constant                   // Literal value (resolved at codegen level)
     ;
 
 /*
@@ -867,7 +877,8 @@ scope {
     string sselfName;  // Array variable name
 }
 returns [string sRetValue]
-    : ^(ARRAYGET array_atom expression)
+    : ^(ARRAYGET ID ID atom expression)
+      // Array element access: destVar, selfVar, array expressions via atom, index expression
       -> arrayGet(...)
     | atom
     ;
@@ -877,7 +888,7 @@ returns [string sRetValue]
   ATOM (ATOMIC EXPRESSIONS - HIGHEST PRECEDENCE)
 ================================================================================
 
-  Processes atomic expressions (9 alternatives).
+  Processes atomic expressions (4 alternatives).
 
   Returns:
     - atom_return with sRetValue
@@ -885,15 +896,10 @@ returns [string sRetValue]
 
 atom
 returns [string sRetValue]
-    : array_func_or_id           // Array variable or array method call
-    | func_or_id                 // Variable or function call
-    | ^(PAREXPR expression)      // Parenthesized expression
-    | constant                   // Literal value
-    | ^(LENGTH atom)             // Array length
-    | ^(NEWARRAY type expression) // New array allocation
-    | ^(NEWSTRUCT type)          // New struct (FO4)
-    | ^(PROPGET atom ID)         // Property getter
-    | ^(STRUCTGET atom ID)       // Struct member getter (FO4)
+    : ^(PAREXPR expression)      // Parenthesized expression (pass-through)
+    | ^(NEWARRAY expression ID)  // New array allocation (ID = dest temp var)
+    | ^(NEWSTRUCT ID)            // New struct (FO4, ID = dest temp var)
+    | func_or_id                 // Variable, function call, prop/struct get, or array length
     ;
 
 /*
@@ -901,17 +907,16 @@ returns [string sRetValue]
   ARRAY FUNCTION OR ID (ARRAY METHODS)
 ================================================================================
 
-  Processes array variable or array method calls (3 alternatives).
+  Processes array variable access or passthrough to func_or_id (2 alternatives).
 
   Returns:
     - array_func_or_id_return with sRetValue
 
   Scope Stack: array_func_or_id_scope
 
-  Array methods (FO4):
-    - ARRAYFIND / ARRAYRFIND: Find element by value
-    - ARRAYFINDSTRUCT / ARRAYRFINDSTRUCT: Find struct by member value (FO4)
-    - ARRAYCLEAR: Clear all elements
+  Post-optimization AST:
+    - ARRAYGET nodes contain flattened ID ID func_or_id expression patterns
+    - Array methods (ARRAYFIND, etc.) are handled in function_call
 */
 
 array_func_or_id
@@ -919,16 +924,9 @@ scope {
     string sselfName;  // Array variable name
 }
 returns [string sRetValue]
-    : ^(ARRAYFIND array_func_or_id expression)
-      -> arrayFind(...)
-    | ^(ARRAYRFIND array_func_or_id expression)
-      -> arrayRFind(...)
-    | ^(ARRAYFINDSTRUCT array_func_or_id ID expression)  // FO4
-      -> arrayFindStruct(...)
-    | ^(ARRAYRFINDSTRUCT array_func_or_id ID expression) // FO4
-      -> arrayRFindStruct(...)
-    | ^(ARRAYCLEAR array_func_or_id)
-      -> arrayClear(...)
+    : ^(ARRAYGET ID ID func_or_id expression)
+      // Array element access: destVar, selfVar, array expressions via func_or_id, index expression
+      -> arrayGet(...)
     | func_or_id
     ;
 
@@ -937,7 +935,7 @@ returns [string sRetValue]
   FUNC OR ID (FUNCTION CALL OR IDENTIFIER)
 ================================================================================
 
-  Processes variable or function call (2 alternatives).
+  Processes variable or function call (5 alternatives).
 
   Returns:
     - func_or_id_return with sRetValue
@@ -951,7 +949,10 @@ scope {
 }
 returns [string sRetValue]
     : function_call
-    | ID
+    | ^(PROPGET ID ID ID)        // Property getter (selfVar, propName, destVar)
+    | ^(STRUCTGET ID ID ID)      // Struct member getter (selfVar, memberName, destVar) (FO4)
+    | ID                         // Simple variable reference
+    | ^(LENGTH ID ID)            // Array length (selfVar, destVar)
     ;
 
 /*
@@ -968,7 +969,8 @@ property_set
 scope {
     string sselfName;  // Object variable name
 }
-    : ^(PROPSET l_value ID expression)
+    : ^(PROPSET ID ID idOrConstant)
+      // Property setter: selfVar, propName, value (ID or constant)
       -> propertySet(...)
     ;
 
@@ -986,7 +988,8 @@ struct_set
 scope {
     string sselfName;  // Struct variable name
 }
-    : ^(STRUCTSET l_value ID expression)
+    : ^(STRUCTSET ID ID idOrConstant)
+      // Struct setter: selfVar, memberName, value (ID or constant)
       -> structSet(...)
     ;
 
@@ -1117,13 +1120,17 @@ scope {
 
   Scope Stack: function_call_scope
 
+  Post-optimization AST: All calls use flattened ID ID (ID) CALLPARAMS parameters? pattern.
+  Expressions are resolved to temp variable IDs by the optimizer.
+
   Call types:
-    1. CALL - Local method call (self.method)
-    2. CALLPARENT - Parent method call (parent.method)
-    3. CALLGLOBAL - Static method call (Class.method)
-    4-12. Array operations: ARRAYADD, ARRAYINSERT, ARRAYREMOVELAST, ARRAYREMOVE,
-                           ARRAYCLEAR, ARRAYFIND, ARRAYRFIND,
-                           ARRAYFINDSTRUCT, ARRAYRFINDSTRUCT (FO4)
+    1. CALL ID ID ID CALLPARAMS - Local method call (selfVar, funcName, retVar)
+    2. CALLPARENT ID ID ID CALLPARAMS - Parent method call (parentType, funcName, retVar)
+    3. CALLGLOBAL ID ID ID CALLPARAMS - Static method call (objType, funcName, retVar)
+    4-12. Array operations: ID ID CALLPARAMS pattern (selfVar, retVar)
+          ARRAYADD, ARRAYINSERT, ARRAYREMOVELAST, ARRAYREMOVE,
+          ARRAYCLEAR, ARRAYFIND, ARRAYRFIND,
+          ARRAYFINDSTRUCT, ARRAYRFINDSTRUCT (FO4)
 
   Templates: callLocal, callParent, callGlobal, array operation templates
 */
@@ -1133,29 +1140,41 @@ scope {
     string sselfName;  // Self/receiver variable name
 }
 returns [string sRetValue]
-    : ^(CALL func_or_id ID parameters)
+    : ^(CALL ID ID ID CALLPARAMS parameters?)
+      // Local call: selfVar, funcName, retVar, params
       -> callLocal(...)
-    | ^(CALLPARENT func_or_id ID parameters)
+    | ^(CALLPARENT ID ID ID CALLPARAMS parameters?)
+      // Parent call: parentType, funcName, retVar, params
       -> callParent(...)
-    | ^(CALLGLOBAL func_or_id ID parameters)
+    | ^(CALLGLOBAL ID ID ID CALLPARAMS parameters?)
+      // Global call: objType, funcName, retVar, params
       -> callGlobal(...)
-    | ^(ARRAYADD func_or_id expression)
+    | ^(ARRAYADD ID ID CALLPARAMS parameters?)
+      // Array add: selfVar, retVar, params
       -> arrayAdd(...)
-    | ^(ARRAYINSERT func_or_id expression expression)
+    | ^(ARRAYINSERT ID ID CALLPARAMS parameters?)
+      // Array insert: selfVar, retVar, params
       -> arrayInsert(...)
-    | ^(ARRAYREMOVELAST func_or_id)
+    | ^(ARRAYREMOVELAST ID ID CALLPARAMS parameters?)
+      // Array remove last: selfVar, retVar, params
       -> arrayRemoveLast(...)
-    | ^(ARRAYREMOVE func_or_id expression)
+    | ^(ARRAYREMOVE ID ID CALLPARAMS parameters?)
+      // Array remove: selfVar, retVar, params
       -> arrayRemove(...)
-    | ^(ARRAYCLEAR func_or_id)
+    | ^(ARRAYCLEAR ID ID CALLPARAMS parameters?)
+      // Array clear: selfVar, retVar, params
       -> arrayClear(...)
-    | ^(ARRAYFIND func_or_id expression)
+    | ^(ARRAYFIND ID ID CALLPARAMS parameters?)
+      // Array find: selfVar, retVar, params
       -> arrayFind(...)
-    | ^(ARRAYRFIND func_or_id expression)
+    | ^(ARRAYRFIND ID ID CALLPARAMS parameters?)
+      // Array rfind: selfVar, retVar, params
       -> arrayRFind(...)
-    | ^(ARRAYFINDSTRUCT func_or_id ID expression)  // FO4
+    | ^(ARRAYFINDSTRUCT ID ID CALLPARAMS parameters?)  // FO4
+      // Array find struct: selfVar, retVar, params
       -> arrayFindStruct(...)
-    | ^(ARRAYRFINDSTRUCT func_or_id ID expression) // FO4
+    | ^(ARRAYRFINDSTRUCT ID ID CALLPARAMS parameters?) // FO4
+      // Array rfind struct: selfVar, retVar, params
       -> arrayRFindStruct(...)
     ;
 
@@ -1251,17 +1270,18 @@ number
   Returns:
     - type_return with sTypeString (type string representation)
 
-  FO4 Features:
-    - DEPENDENTTYPE: Namespaced type (ScriptName:StructName)
-    - Array syntax: type[] or namespace:type[]
+  Post-optimization AST:
+    - DEPENDENTTYPE is resolved to ID by the type checker
+    - Namespaced types (ScriptName:StructName) appear as plain ID tokens
+    - Array syntax: ID[] or BASETYPE[]
 */
 
 type
 returns [string sTypeString]
-    : ID                                    // Simple type: Int, String, Actor
-    | DEPENDENTTYPE                         // Namespaced: ScriptName:StructName (FO4)
-    | DEPENDENTTYPE LBRACKET RBRACKET       // Array of namespaced type (FO4)
-    | BASETYPE LBRACKET RBRACKET            // Array of simple type
+    : ID                                    // Simple type: Int, String, Actor (or resolved namespace type)
+    | ID LBRACKET RBRACKET                  // Array of simple/resolved type
+    | BASETYPE                              // Base type: Int, Float, Bool, String
+    | BASETYPE LBRACKET RBRACKET            // Array of base type
     ;
 
 /*

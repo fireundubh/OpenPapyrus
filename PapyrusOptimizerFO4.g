@@ -93,7 +93,7 @@ using System.Collections.Generic;
         // Checks type compatibility and known types
     }
 
-    private ITree CompileCast(string asDestVarName, IToken apSourceToken) {
+    private ITree CalculateRawCast(string asDestVarName, IToken apSourceToken) {
         // Performs compile-time cast of constant values
         // Creates new token with converted value
     }
@@ -110,6 +110,59 @@ using System.Collections.Generic;
     private bool CheckArraySize(IToken apSizeToken) {
         // Validates array size is between 0 and 128
         // Reports error if out of range
+    }
+
+    private ScriptComplexType GetKnownType(string asName) {
+        // Returns the ScriptComplexType for asName if it exists in pKnownTypes, else null
+    }
+
+    private string EnsureFloatingPoint(string asInput) {
+        // Appends ".0" if asInput has no decimal point
+    }
+
+    private string TrimGarbage(string asInput, char[] akNonGarbageCharsA) {
+        // Trims leading characters that are in akNonGarbageCharsA, returns prefix before first non-garbage char
+    }
+
+    private int CastStrToInt(string asInput) {
+        // Parses asInput to int, progressively trimming trailing chars until TryParse succeeds
+    }
+
+    private string TrimQuotes(string asInput) {
+        // Removes surrounding quotes from a string literal
+    }
+
+    private bool TryGetVariableType(string asVarName, out ScriptVariableType arpVarType) {
+        // Checks pObjType and pScopeManager.CurrentScope for variable type
+    }
+
+    private ITree PushValueToLValue(ITree apLValueTree, IToken apReplacementValue) {
+        // Creates a NOCODEASSIGN tree wrapping the l-value with the replacement value
+        // Calls ReplaceLValueTarget to update the target variable in the l-value
+    }
+
+    private bool CanPushValueToLValue(ITree apLValueTree) {
+        // Returns true if l-value is ARRAYSET, PROPSET, STRUCTSET, or DOT (recursive on child 1)
+    }
+
+    private bool ReplaceLValueTarget(ITree apLValueTree, IToken apReplacementValue) {
+        // Replaces the target variable in an l-value tree with apReplacementValue
+        // ARRAYSET: sets child 0; PROPSET/STRUCTSET: sets child 2; DOT: recurses on child 1
+    }
+
+    private ITree PushValueToExpression(ITree apExpressionTree, ITree apLValueTree, IToken apReplacementValue) {
+        // Creates a NOCODEASSIGN tree wrapping the expression with the replacement value
+        // Calls ReplaceExpressionTarget to update the target in the expression
+    }
+
+    private bool CanPushValueToExpression(ITree apExpressionTree) {
+        // Returns true if expression type supports value pushing
+        // Handles DOT (recurse child 1), PAREXPR (recurse child 0), and ~40 direct token types
+    }
+
+    private bool ReplaceExpressionTarget(ITree apExpressionTree, IToken apReplacementValue) {
+        // Replaces the target variable in an expression tree with apReplacementValue
+        // Different child index depending on expression type
     }
 
     event InternalErrorEventHandler pErrorHandler;
@@ -156,11 +209,11 @@ bottomup
 // ============================================================================
 
 // Enter function scope - initializes function-level scope for variable tracking
+// Tree pattern: ^((FUNCTION|EVENT|REMOTEEVENT) ^(HEADER type ID .*) .?)
 enterFunction
-    : ^((FUNCTION | EVENT | REMOTEEVENT) HEADER .)
+    : ^((FUNCTION | EVENT | REMOTEEVENT) ^(HEADER type name=ID .*) .?)
     {
-        // Push new function scope onto scope manager
-        // Initialize local variable tracking
+        pScopeManager.EnterFunction($name.text);
     }
     ;
 
@@ -235,22 +288,39 @@ eliminateParens
     ;
 
 validParenRemovalTarget
-    : constant
-    | ID
-    | ^(DOT . .)
-    | ^(CALL . . . . .)
-    | ^(CALLPARENT . . . . .)
-    | ^(CALLGLOBAL . . . . .)
-    | ^(PROPGET . . .)
-    | ^(ARRAYGET . . . .)
-    | ^(LENGTH . .)
-    | ^(NEWARRAY . .)
-    | ^(NEWSTRUCT . .)
-    | ^(AS . .)
-    | ^(IS . .)
-    | ^(NOT .)
-    | ^(INEGATE .)
-    | ^(FNEGATE .)
+    : ID                           // case 1: Simple identifier
+    | STRING                       // case 2: String literal
+    | BOOL                         // case 3: Boolean literal
+    | NONE                         // case 4: None literal
+    | INTEGER                      // case 5: Integer literal
+    | FLOAT                        // case 6: Float literal
+    | ^(PROPGET .+)                // case 7: Property getter
+    | ^(STRUCTGET .+)              // case 8: Struct field getter
+    | ^(LENGTH .+)                 // case 9: Array length
+    | RETURN                       // case 10: Return statement (leaf or tree)
+    | ^(CALL .+)                   // case 11: Method call
+    | ^(CALLPARENT .+)             // case 12: Parent method call
+    | ^(CALLGLOBAL .+)             // case 13: Global function call
+    | ^(ARRAYGET .+)               // case 14: Array element access
+    | ^(ARRAYSET .+)               // case 15: Array element set
+    | ^(ARRAYADD .+)               // case 16: Array add
+    | ^(ARRAYINSERT .+)            // case 17: Array insert
+    | ^(ARRAYREMOVELAST .+)        // case 18: Array remove last
+    | ^(ARRAYREMOVE .+)            // case 19: Array remove
+    | ^(ARRAYCLEAR .+)             // case 20: Array clear
+    | ^(ARRAYFIND .+)              // case 21: Array find
+    | ^(ARRAYRFIND .+)             // case 22: Array reverse find
+    | ^(ARRAYFINDSTRUCT .+)        // case 23: Array find struct
+    | ^(ARRAYRFINDSTRUCT .+)       // case 24: Array reverse find struct
+    | ^(NEWARRAY .+)               // case 25: New array
+    | ^(NEWSTRUCT .+)              // case 26: New struct
+    | ^(STRUCTSET .+)              // case 28: Struct field set
+    | ^(DOT . .)                   // Dot access
+    | ^(AS . .)                    // Type cast
+    | ^(IS . .)                    // Type check
+    | ^(NOT .)                     // Logical NOT
+    | ^(INEGATE .)                 // Integer negation
+    | ^(FNEGATE .)                 // Float negation
     ;
 
 // Optimization Pass #2: Consolidate dot operators
@@ -349,7 +419,7 @@ unaryOps
 // Semantic predicate: CanCompileCast($ID.Text, $rawValue.start.Token)
 rawCastOps
     : ^(AS ID rawValue) {CanCompileCast($ID.Text, $rawValue.start.Token)}?
-      -> {CompileCast($ID.Text, $rawValue.start.Token)}
+      -> {CalculateRawCast($ID.Text, $rawValue.start.Token)}
     ;
 
 // Optimization Pass #8: Optimize IS type checks
@@ -357,10 +427,10 @@ rawCastOps
 // Pattern: (IS <typename> <variable>) -> <bool_result> (if inheritance can be determined)
 // Evaluates inheritance relationships at compile-time when possible
 rawIsCheck
-    : ^(IS ID rawValue) {CanCompileIsCheck(GetTypeFromID($ID), $rawValue.start.Token)}?
-      -> {CalculateIsCheck(GetTypeFromID($ID), $rawValue.start.Token)}
-    | ^(IS type rawValue) {CanCompileIsCheck($type.varType, $rawValue.start.Token)}?
-      -> {CalculateIsCheck($type.varType, $rawValue.start.Token)}
+    : ^(IS ID rawValue type) {CanCompileIsCheck($type.pType, $rawValue.start.Token)}?
+      -> {CalculateIsCheck($type.pType, $rawValue.start.Token)}
+    | ^(IS ID source=ID type) {CanCompileIsCheck($type.pType, $source.Token)}?
+      -> {CalculateIsCheck($type.pType, $source.Token)}
     ;
 
 // Optimization Pass #9: Clean up assignment statements
@@ -369,11 +439,14 @@ rawIsCheck
 // Pattern: (VAR type ID (NOCODEASSIGN ...)) - local var with computed init
 cleanEquals
     : ^(EQUALS ID l_value rawValueOrID)
-      // Complex pattern matching for l-value optimization
-    | ^(EQUALS ID l_value .)
-      // General assignment cleanup
-    | ^(VAR ID type l_valueVarCapture)
-      // Local variable with expression initialization
+      {CanPushValueToLValue($l_value.tree)}?
+      -> {PushValueToLValue($l_value.tree, $rawValueOrID.start.Token)}
+    | ^(EQUALS ID l_valueVarCapture source=.)
+      {CanPushValueToExpression($source)}?
+      -> {PushValueToExpression($source, $l_valueVarCapture.tree, $l_valueVarCapture.pTargetVar)}
+    | ^(VAR type name=ID source=.)
+      {CanPushValueToExpression($source)}?
+      -> ^(VAR type $name {PushValueToExpression($source, null, $name.Token)})
     ;
 
 // Optimization Pass #10: Validate array sizes
@@ -404,33 +477,46 @@ rawValueOrID
     ;
 
 // Type definition (for IS checks and casts)
-type returns [ScriptVariableType varType]
-    : ID                      // Simple type
-    | ^(ID LBRACKET RBRACKET) // Array type
+// Returns pType: the ScriptVariableType for the parsed type
+type returns [ScriptVariableType pType]
+    : NONE
+      { $pType = new ScriptVariableType($NONE.text); }
+    | ID
+      { $pType = new ScriptVariableType($ID.text); }
+    | ID LBRACKET RBRACKET
+      { $pType = new ScriptVariableType($ID.text + "[]"); }
+    | BASETYPE
+      { $pType = new ScriptVariableType($BASETYPE.text); }
+    | BASETYPE LBRACKET RBRACKET
+      { $pType = new ScriptVariableType($BASETYPE.text + "[]"); }
     ;
 
 // L-value for assignment targets
 l_value
-    : ID
-    | ^(DOT l_value ID)
-    | ^(ARRAYSET ID ID ID l_value .)
-    | ^(PROPSET ID ID ID)
-    | ^(STRUCTSET ID ID ID)
+    : ^(ARRAYSET .+)
+    | ^(STRUCTSET .+)
+    | ^(PROPSET .+)
+    | ^(DOT . l_value)
+    | ID
     ;
 
-// L-value with variable capture (for var declarations)
-l_valueVarCapture returns [string varName]
-    : ID { $varName = $ID.text; }
-    | ^(DOT l_value ID)
-    ;
-
-// Constant values
-constant
-    : INTEGER
-    | FLOAT
-    | BOOL
-    | STRING
-    | NONE
+// L-value with variable capture (for cleanEquals optimization)
+// Returns pTargetVar: the IToken of the variable being assigned to
+l_valueVarCapture returns [IToken pTargetVar]
+    : ^(ARRAYSET var=ID . . .)
+      { $pTargetVar = $var.Token; }
+      -> ^(ARRAYSET $var . . .)
+    | ^(STRUCTSET . . param=ID)
+      { $pTargetVar = $param.Token; }
+      -> ^(STRUCTSET . . $param)
+    | ^(PROPSET . . param=ID)
+      { $pTargetVar = $param.Token; }
+      -> ^(PROPSET . . $param)
+    | ^(DOT . l_valueVarCapture)
+      { $pTargetVar = $l_valueVarCapture.pTargetVar; }
+      -> ^(DOT . l_valueVarCapture)
+    | ID
+      { $pTargetVar = $ID.Token; }
     ;
 
 // ============================================================================
@@ -455,6 +541,10 @@ constant
 //   Used in: rawCastOps
 //   Returns: true if cast is valid and can be performed at compile-time
 //   Checks: Type compatibility, variable existence
+//
+// CalculateRawCast(string, IToken): Performs compile-time cast
+//   Used in: rawCastOps (rewrite)
+//   Returns: ITree with converted constant value
 
 // CanCompileIsCheck(ScriptVariableType, IToken): IS check validation
 //   Used in: rawIsCheck

@@ -1345,17 +1345,16 @@ parameter
 // CONSTANT AND TYPE RULES
 // ============================================================================
 
-constant
-    : INTEGER
-    | FLOAT
-    | BOOL
-    | STRING
-    | NONE
+constant returns [ScriptVariableType pType, IToken pVarToken]
+    : number    { $pType = $number.pType; $pVarToken = $number.pVarToken; }
+    | STRING    { $pType = new ScriptVariableType("string"); $pVarToken = $STRING.token; }
+    | BOOL      { $pType = new ScriptVariableType("bool"); $pVarToken = $BOOL.token; }
+    | NONE      { $pType = new ScriptVariableType("none"); $pVarToken = $NONE.token; }
     ;
 
-number
-    : INTEGER
-    | FLOAT
+number returns [ScriptVariableType pType, IToken pVarToken]
+    : INTEGER   { $pType = new ScriptVariableType("int"); $pVarToken = $INTEGER.token; }
+    | FLOAT     { $pType = new ScriptVariableType("float"); $pVarToken = $FLOAT.token; }
     ;
 
 type returns [ScriptVariableType pType]
